@@ -8,10 +8,10 @@ import zipfile
 import boto3
 import botocore.exceptions
 
-import utils
-from utils import session, logging
+import aws_deploy.utils as utils
+from aws_deploy.utils import session, logging
 
-from params import LambdaParams, CognitoParams, RestAPIGatewayParams
+from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams
 
 def __get_lambda_role_from_name(role_name):
     iam_client = session.client('iam')

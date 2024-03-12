@@ -6,11 +6,11 @@ import os
 import boto3
 import botocore.exceptions
 
-from deploy import deploy_lambda, remove_lambda, deploy_cognito_userpool, remove_cognito_user_pool, deploy_api_gateway, remove_api_gateway
-from params import LambdaParams, CognitoParams, RestAPIGatewayParams
+from aws_deploy.deploy import deploy_lambda, remove_lambda, deploy_cognito_userpool, remove_cognito_user_pool, deploy_api_gateway, remove_api_gateway
+from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams
 
-from utils import Constants, logging, session
-import utils
+from aws_deploy.utils import Constants, logging, session
+import aws_deploy.utils as utils
 
 sts_client = session.client('sts')
 resp = sts_client.get_caller_identity()
