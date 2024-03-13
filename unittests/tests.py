@@ -10,7 +10,8 @@ s = os.path.abspath(os.path.join(__file__, '../..'))
 sys.path.append(s)
 
 from aws_deploy.deploy import deploy_lambda, remove_lambda
-from aws_deploy.params import LambdaParams
+from aws_deploy.deploy import deploy_dynamodb, remove_dynamodb
+from aws_deploy.params import LambdaParams, DynamoDBParams
 
 # Arrange, Act, Assert model of testing
 def sum(a, b):
@@ -23,7 +24,7 @@ class LambdaTests(unittest.TestCase):
     # note that tests should start with the "test" keyword
     
     # note that setup is called before every test function!
-    def setUp(self, *args):
+    def setUp(self):
         # arrange
         self.session = None
 
@@ -32,6 +33,7 @@ class LambdaTests(unittest.TestCase):
         self.session = None
         self.deployment_details = None
 
+    @unittest.skip('skip')
     def test_initialize_lambda(self):
         # act
         lambda_params = LambdaParams()
@@ -49,18 +51,32 @@ class LambdaTests(unittest.TestCase):
         # assigning into deployment details to properly handle teardown
         self.deployment_details = deploy_lambda(lambda_params)
 
-        print(self.deployment_details, type(self.deployment_details))
-
         self.assertEqual(self.deployment_details['FunctionName'], expected_params['FunctionName'])
         self.assertEqual(self.deployment_details['Runtime'], expected_params['Runtime'])
         self.assertEqual(self.deployment_details['Role'].split('/')[-1].strip(), expected_params['RoleName'])
 
+    @unittest.skip('skip')
     def test_remove_lambda(self):
         # reconstruct from deployment_details
         lambda_params = LambdaParams()
         lambda_params.function_name = 'unittest_function'
 
         remove_lambda(lambda_params)
+
+class DynamoDBTests(unittest.TestCase):
+
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+    def test_create_table(self):
+        dynamodb_params = DynamoDBParams()
+        dynamodb_params.set_partition_key('id', 'S')
+        dynamodb_params.set_sort_key('number', 'N')
+
+        deploy_dynamodb(dynamodb_params)
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,7 @@ import botocore.exceptions
 import aws_deploy.utils as utils
 from aws_deploy.utils import session, logging
 
-from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams
+from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams, DynamoDBParams
 
 def __get_lambda_role_from_name(role_name):
     iam_client = session.client('iam')
@@ -31,8 +31,10 @@ def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaPar
     try:
         # return this role as-is if it already exists
         resp = iam_client.get_role(RoleName=role_name)
+        logging('role already exists!', utils.Colors.CYAN)
         return resp
     except Exception as e:
+        logging('role does not exist!', utils.Colors.CYAN)
         pass # do nothing
     
     trust_policy = {
@@ -95,6 +97,7 @@ def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaPar
         PolicyName='LambdaBasicExecutionPolicy',
         PolicyDocument=json.dumps(lambda_policy)
     )
+
 
     try:
         resp = iam_client.get_role(RoleName=role_name)
@@ -174,10 +177,14 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
 
     # change the role name to role arn
     if role_arn:
+        logging('there is a role specified already!', utils.Colors.CYAN)
         role_arn = __get_lambda_role_from_name(role_arn)['Role']['Arn']
     else:
         # create a role if necessary
+        logging('creating a new role!', utils.Colors.CYAN)
         role_arn = __create_lambda_basic_execution_role(lambda_client, lambda_params)['Role']['Arn']
+
+    logging(role_arn, utils.Colors.GREEN)
 
     # wait for the role to be fully deployed and then move onto function deployment
     
@@ -212,15 +219,34 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
         logging('attempting to create function!!')
         zip_data = zip_buffer.read() # very similar to f.read() from with open(...) as f
 
-        resp = lambda_client.create_function(
-            FunctionName=function_name,
-            Runtime=runtime,
-            Role=role_arn,
-            Handler=handler_method,
-            Code={
-                'ZipFile':zip_data
-            }
-        )
+        # avoid a future error: ensure that the role is actually ready to be attached
+
+        try:
+            resp = lambda_client.create_function(
+                FunctionName=function_name,
+                Runtime=runtime,
+                Role=role_arn,
+                Handler=handler_method,
+                Code={
+                    'ZipFile':zip_data
+                }
+            )
+
+        except botocore.exceptions.ClientError as e:
+            logging('error reached', utils.Colors.BLUE)
+            logging('attempting to deploy one more time...', utils.Colors.RED)
+            time.sleep(10)
+
+            # will fail if cannot deploy
+            resp = lambda_client.create_function(
+                FunctionName=function_name,
+                Runtime=runtime,
+                Role=role_arn,
+                Handler=handler_method,
+                Code={
+                    'ZipFile':zip_data
+                }
+            )
 
         logging(f'Function creation success!\n{utils.Constants.TAB}function name: {resp["FunctionName"]}\n' + \
                     f'{utils.Constants.TAB}arn: {resp["FunctionArn"]}', utils.Colors.GREEN)
@@ -268,7 +294,8 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
 
 # TODO: maybe make these parameters all the same to remove any confusion? 
 def remove_lambda(lambda_params: LambdaParams):
-    
+    logging('Removing lambda function...')
+
     if (not lambda_params):
         logging('Error in deploy.remove_lambda: no argument specified', utils.Colors.RED)
 
@@ -277,6 +304,7 @@ def remove_lambda(lambda_params: LambdaParams):
     try:
         # first get the function and the role associated with it to remove
         lambda_client = session.client('lambda')
+            
 
         resp = lambda_client.get_function(FunctionName=function_name)
         lambda_params._function_arn = resp['Configuration']['FunctionArn']
@@ -1320,3 +1348,68 @@ def remove_api_gateway(gateway_params: RestAPIGatewayParams):
         # permissions attached to this api.
         # repopulate the api resource data
         gateway_client.delete_rest_api(restApiId=gateway_params._rest_api_id)
+
+# return table string if exists or return None
+def __get_dynamodb_table_from_name(dynamodb_client, dynamodb_params: DynamoDBParams) -> str | None:
+    resp = dynamodb_client.list_tables()
+
+    table_names = resp['TableNames']
+
+    if dynamodb_params.table_name in table_names:
+        return dynamodb_params.table_name
+    else:
+        return None
+    
+def __create_dynamodb_table(dynamodb_client, dynamodb_params):
+    logging('Creating DynamoDB table...')
+
+
+    mapped_key_schema = []
+
+
+    # I will hardcode this until it works first
+    dynamodb_client.create_table(
+        AttributeDefinitions=[
+            {
+                'AttributeName': 'id',
+                'AttributeType': 'S'
+            },
+            {
+                'AttributeName': 'number',
+                'AttributeType': 'N'
+            }
+        ],
+        TableName='test',
+        KeySchema=[
+            {
+                'AttributeName': 'id',
+                'KeyType': 'HASH'
+            },
+            {
+                'AttributeName': 'number',
+                'KeyType': 'RANGE'
+            }
+        ],
+        BillingMode='PROVISIONED',
+        ProvisionedThroughput={
+            'ReadCapacityUnits': 1,
+            'WriteCapacityUnits': 1
+        }
+    )
+
+
+def deploy_dynamodb(dynamodb_params):
+
+    dynamodb_client = session.client('dynamodb')
+
+    # is None if the table does not already exist
+    table_name = __get_dynamodb_table_from_name(dynamodb_client, dynamodb_params)
+
+    if not table_name:
+        __create_dynamodb_table(dynamodb_client, dynamodb_params)
+    else:
+        logging('code for update table here')
+
+
+def remove_dynamodb(dynamodb_params):
+    pass

@@ -8,8 +8,7 @@ class LambdaParams:
     lambda_layer_lib_filepath = None
 
     _function_arn = None
-    _role_arn = None
-    
+    _role_arn = None  
 
 class CognitoParams:
     pool_name = 'developedWithCode'
@@ -139,3 +138,27 @@ class RestAPIGatewayParams:
 
     def add_resource(self, path, function_name = None, method = None):
         self.resources.append(RestAPIGatewayParams.ResourceParams(path, function_name, method))
+
+class DynamoDBParams:
+    table_name = None
+    attributes = []
+
+    # primary key
+    partition_key = None
+    partition_key_type = None
+    sort_key = None
+    sort_key_type = None
+    
+
+    global_secondary_index = None
+    
+    def add_attribute(self, attr, data_type):
+        self.attributes.append((attr, data_type))
+
+    def set_partition_key(self, key, key_type):
+        self.partition_key = key
+        self.partition_key_type = key_type
+
+    def set_sort_key(self, sort, sort_type):
+        self.sort_key = sort
+        self.sort_key_type = sort_type
