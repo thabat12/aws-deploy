@@ -6,6 +6,9 @@ class LambdaParams:
     code_folder_filepath = None
     deployment_package_files = None
     lambda_layer_lib_filepath = None
+
+    _function_arn = None
+    _role_arn = None
     
 
 class CognitoParams:

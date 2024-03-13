@@ -26,7 +26,7 @@ def __get_lambda_role_from_name(role_name):
 def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaParams):
     iam_client = session.client('iam')
 
-    role_name = f'{lambda_params.function_name}-lambda-basic-execution-role'
+    role_name = f'{lambda_params.function_name}-lambda-basic-execution-role-auto-created'
 
     try:
         # return this role as-is if it already exists
@@ -63,9 +63,30 @@ def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaPar
         ]
     }
 
+    # ensure role is created with the necessary tag to allow for reference for potential deletion
+    # of the iam role
+
+    sts_client = session.client('sts')
+    resp = sts_client.get_caller_identity()
+    user_name = None
+
+    if resp['ResponseMetadata']['HTTPStatusCode'] == 200:
+        user_name = resp["Arn"].split("/")[1]
+    else:
+        raise Exception('Log In to user unsuccessful')
+    
+    if not user_name:
+        raise Exception('user_name remains undefined')
+
     iam_client.create_role(
         RoleName=role_name,
-        AssumeRolePolicyDocument=json.dumps(trust_policy)
+        AssumeRolePolicyDocument=json.dumps(trust_policy),
+        Tags=[
+            {
+                'Key': 'Creator',
+                'Value': user_name
+            }
+        ]
     )
 
     # deploy & retrieve function arn
@@ -77,6 +98,7 @@ def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaPar
 
     try:
         resp = iam_client.get_role(RoleName=role_name)
+        iam_client.get_waiter('role_exists').wait(RoleName=role_name)
         return resp
     except Exception as e:
         # this is a host-side issue
@@ -103,6 +125,37 @@ def __get_lambda_function_from_name(function_name):
     
     return resp
 
+def __handle_lambda_remove_role(lambda_client, lambda_params: LambdaParams):
+    logging('Found auto-generated role, deleting role from IAM...')
+
+    iam_client = session.client('iam')
+
+    # just naively delete the role
+    try:
+        role_name = lambda_params._role_arn.split('/')[-1].strip()
+
+        # first, delete any policies attached to the role
+        resp = iam_client.list_attached_role_policies(RoleName=role_name)
+
+        logging('removing the policies first...', utils.Colors.YELLOW)
+        logging(resp, utils.Colors.YELLOW)
+
+        for policy in resp['AttachedPolicies']:
+            iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy['PolicyArn'])
+
+        # deletion of inline policies
+        resp = iam_client.list_role_policies(RoleName=role_name)
+        inline_policy_names = resp['PolicyNames']
+        
+        for policy_name in inline_policy_names:
+            iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+
+        iam_client.delete_role(
+            RoleName=lambda_params._role_arn.split('/')[-1].strip()
+        )
+    except Exception as e:
+        logging(e, utils.Colors.RED)
+
 # returns the arn of the created function
 def deploy_lambda(lambda_params: LambdaParams) -> str:
     
@@ -117,6 +170,8 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
     deployment_package_files = lambda_params.deployment_package_files
     lambda_layer_lib_filepath = lambda_params.lambda_layer_lib_filepath
 
+    resp = None
+
     # change the role name to role arn
     if role_arn:
         role_arn = __get_lambda_role_from_name(role_arn)['Role']['Arn']
@@ -124,12 +179,17 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
         # create a role if necessary
         role_arn = __create_lambda_basic_execution_role(lambda_client, lambda_params)['Role']['Arn']
 
+    # wait for the role to be fully deployed and then move onto function deployment
+    
+
     logging(f'Derived lambda role arn: {role_arn}')
 
 
     deployment_package_files = set(deployment_package_files) \
         if type(deployment_package_files) == list else set([deployment_package_files])
-    print('hi there')
+    
+    # read file from the folder filepath
+    print('code folder filepath', code_folder_filepath)
     try:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, False) as zip_file:
@@ -165,7 +225,6 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
         logging(f'Function creation success!\n{utils.Constants.TAB}function name: {resp["FunctionName"]}\n' + \
                     f'{utils.Constants.TAB}arn: {resp["FunctionArn"]}', utils.Colors.GREEN)
         
-        res_arn = resp['FunctionArn']
     except botocore.exceptions.ClientError as client_err:
         
         if client_err.response['Error']['Code'] == 'ResourceConflictException':
@@ -197,8 +256,7 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
 
                 logging(f'Function code success!\n{utils.Constants.TAB}function name: {resp["FunctionName"]}' + \
                             f'\n{utils.Constants.TAB}arn: {resp["FunctionArn"]}', utils.Colors.GREEN)
-
-                res_arn = resp['FunctionArn']
+                
             except Exception as e:
                 logging('Update function failed:' + str(e), utils.Colors.RED)
         else:
@@ -206,19 +264,30 @@ def deploy_lambda(lambda_params: LambdaParams) -> str:
     except Exception as e:
         logging(e, utils.Colors.RED)
 
-    return res_arn
-# TODO: maybe make these parameters all the same to remove any confusion? 
-def remove_lambda(function_name=None, function_arn=None, function_partial_arn=None):
-    
-    if (not function_name) and (not function_arn) and (not function_partial_arn):
-        logging('Error in deploy.remove_lambda: no arguments specified', utils.Colors.RED)
+    return resp
 
-    function_name = function_name if function_name else function_arn
-    if not function_name: function_name = function_partial_arn
+# TODO: maybe make these parameters all the same to remove any confusion? 
+def remove_lambda(lambda_params: LambdaParams):
+    
+    if (not lambda_params):
+        logging('Error in deploy.remove_lambda: no argument specified', utils.Colors.RED)
+
+    function_name = lambda_params.function_name
 
     try:
+        # first get the function and the role associated with it to remove
         lambda_client = session.client('lambda')
 
+        resp = lambda_client.get_function(FunctionName=function_name)
+        lambda_params._function_arn = resp['Configuration']['FunctionArn']
+        lambda_params._role_arn = resp['Configuration']['Role']
+
+        # get rid of "junk" role on lambda function if generated by aws-deploy
+        if resp['Configuration']['Role'].split('/')[-1].strip() == \
+            f'{lambda_params.function_name}-lambda-basic-execution-role-auto-created':
+            __handle_lambda_remove_role(lambda_client, lambda_params)
+
+        # after role is handled, delete the function
         lambda_client.delete_function(
             FunctionName=function_name
         )
