@@ -148,17 +148,25 @@ class DynamoDBParams:
     partition_key_type = None
     sort_key = None
     sort_key_type = None
-    
 
-    global_secondary_index = None
+    billing_mode = 'PROVISIONED'
+
+    read_capacity_units = 1
+    write_capacity_units = 1
     
-    def add_attribute(self, attr, data_type):
+    _HASH = 'HASH'
+    _RANGE = 'RANGE'
+
+    
+    def add_local_secondary_index(self, attr, data_type):
         self.attributes.append((attr, data_type))
 
     def set_partition_key(self, key, key_type):
         self.partition_key = key
         self.partition_key_type = key_type
+        self.attributes.append((key, key_type))
 
     def set_sort_key(self, sort, sort_type):
         self.sort_key = sort
         self.sort_key_type = sort_type
+        self.attributes.append((sort, sort_type))
