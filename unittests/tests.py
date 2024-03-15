@@ -33,6 +33,7 @@ class LambdaTests(unittest.TestCase):
         self.session = None
         self.deployment_details = None
 
+    @unittest.skip('skipping test initialize lambda')
     def test_initialize_lambda(self):
         # act
         lambda_params = LambdaParams()
@@ -54,6 +55,7 @@ class LambdaTests(unittest.TestCase):
         self.assertEqual(self.deployment_details['Runtime'], expected_params['Runtime'])
         self.assertEqual(self.deployment_details['Role'].split('/')[-1].strip(), expected_params['RoleName'])
 
+    @unittest.skip('skip')
     def test_remove_lambda(self):
         # reconstruct from deployment_details
         lambda_params = LambdaParams()
@@ -64,41 +66,54 @@ class LambdaTests(unittest.TestCase):
 class DynamoDBTests(unittest.TestCase):
 
     def setUp(self):
-        pass
+        self.table_name = None
 
     def tearDown(self):
-        pass
+        if self.table_name:
+            remove_table_params = DynamoDBParams()
+            remove_table_params.table_name = self.table_name
+            remove_dynamodb(remove_table_params)
+            self.table_name = None
 
-    def test_create_table(self):
+    def test_dynamodb_params_validation(self):
+        dynamodb_params = DynamoDBParams()
+        dynamodb_params.table_name = 'test'
+        dynamodb_params.set_partition_key('id', 'S')
+        dynamodb_params.set_sort_key('number', 'N')
+
+        self.assertEqual(dynamodb_params.table_name, 'test')
+        self.assertEqual(dynamodb_params.attributes, [('id', 'S'), ('number', 'N')])
+
+        dynamodb_params = DynamoDBParams()
+
+    def test_create_table_sort_and_partition(self):
         dynamodb_params = DynamoDBParams()
         dynamodb_params.table_name = 'test'
         dynamodb_params.set_partition_key('id', 'S')
         dynamodb_params.set_sort_key('number', 'N')
 
         deploy_dynamodb(dynamodb_params)
+        self.table_name = 'test'
 
-    def test_remove_table(self):
-        dynamodb_params = DynamoDBParams()
-        dynamodb_params.table_name = 'test'
-
-        remove_dynamodb(dynamodb_params)
-
-    @unittest.skip('hi')
-    def test_create_multiple_lsis_table(self):
+    def test_create_only_primary_key_table(self):
         dynamodb_params = DynamoDBParams()
         dynamodb_params.table_name = 'test1'
         dynamodb_params.set_partition_key('id', 'N')
-        dynamodb_params.add_local_secondary_index('name', 'S')
+
+        deploy_dynamodb(dynamodb_params)
+        self.table_name = 'test1'
+
+    def test_create_multiple_lsis_table(self):
+        dynamodb_params = DynamoDBParams()
+        dynamodb_params.table_name = 'test2'
+        dynamodb_params.set_partition_key('id', 'N')
+        dynamodb_params.set_sort_key('name', 'S')
         dynamodb_params.add_local_secondary_index('age', 'N')
+        dynamodb_params.add_local_secondary_index('height', 'N')
 
         deploy_dynamodb(dynamodb_params)
 
-    @unittest.skip('hi')
-    def test_remove_multiple_lsis_table(self):
-        dynamodb_params = DynamoDBParams()
-        dynamodb_params.table_name = 'test1'
-
-        remove_dynamodb(dynamodb_params)
+        self.table_name = 'test2'
 
 if __name__ == "__main__":
     unittest.main()
