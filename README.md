@@ -86,11 +86,3 @@ remove_lambda(params)
 ```
 
 <p>In that way, resources in aws_deploy are primarily specified by their name. If you have conflicting resource names in aws_deploy, note that unexpected behaviors may occur because boto3 will not be able to handle name conflicts without futher identification parameters.</p>
-
-
-<p>For now, because these services are still under development (and I am the only solo dev on this), concrete examples of function usages will be found in the tests directory. The following images are deployment flowcharts which give more clarity to the internal details of how aws_deploy services specifically work. Note that this documentation is still subject to change.</p>
-
-
----
-Functions deployment diagram
-![functions](./assets/functions_flowchart.png)
