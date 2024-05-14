@@ -1,3 +1,5 @@
+import time
+
 from aws_deploy.params import DynamoDBParams
 from aws_deploy.utils import logging, session
 import aws_deploy.utils as utils
