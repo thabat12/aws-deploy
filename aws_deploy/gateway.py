@@ -301,19 +301,12 @@ def __handle_api_gateway_resource_updates(gateway_client, gateway_params):
     # adding resources is simple, since implicit paths are a part of addition
     added_resources = gateway_param_resource_paths - all_resource_paths
 
-    # TODO: idk what to do about this
-    updated_resources = gateway_param_resource_paths & all_resource_paths
-
     # now will only delete resources if there is an implicit deletion specification set
-    if gateway_params.implicit_deletion and deleted_resources:
+    if deleted_resources:
         __delete_api_gateway_resources(gateway_client, gateway_params, deleted_resources)
 
     if added_resources:
         __add_api_gateway_resources(gateway_client, gateway_params, added_resources)
-
-    # i don't understand the update function very well but for the purposes of this api that will be
-    # ignored
-    if updated_resources: pass # TODO: figure out what to do with this guy later
 
 def __implicit_delete_integration_methods(gateway_client, gateway_params):
     logging('Implicit deleting integration methods...')
@@ -440,6 +433,43 @@ def __handle_gateway_lambda_policy(gateway_client, gateway_params: RestAPIGatewa
             pass
         else:
             logging(e + ' under ClientError', utils.Colors.RED)
+
+def __remove_all_associated_gateway_lambda_policies(gateway_client, gateway_params):
+    # this is required to construct the API resource tree
+    gateway_params._api_resource_data = gateway_client.get_resources(
+            restApiId=gateway_params._rest_api_id
+    )['items']
+
+    root = ResourceTreeNode._construct_api_resource_tree(gateway_params)
+    # all integration methods that have a lambda function configured
+    integration_methods: List[RestAPIGatewayParams.ResourceParams] = [i for i in gateway_params.resources if i.function_name is not None]
+
+    logging('Cleaning up all relevant method lambda permissions...')
+
+    # remove all relevant permissions
+    lambda_client = session.client('lambda')
+
+    for im in integration_methods:
+
+        function_spec = get_lambda_function_from_name(im.function_name)
+
+        statement_sid = f'{gateway_params.api_name}-{gateway_params._rest_api_id}-' + \
+        f'{im._resource_id}-{im.method}-invokeFunction'
+
+        try:
+            lambda_client.remove_permission(
+                FunctionName=im.function_name,
+                StatementId=statement_sid
+            )
+        except Exception as e:
+            # strange behavior but let it pass
+            logging(f"permission {statement_sid} unable to be deleted on function {im.function_name}", 
+                    utils.Colors.YELLOW)
+
+        logging('Removing statement sid ' + str(statement_sid) + ' for method ' + str(im.function_name))
+
+
+    pass
 
 def __update_integration_method(gateway_client, gateway_params: RestAPIGatewayParams, resource_param: RestAPIGatewayParams.ResourceParams):
     logging(f'Updating integration method {resource_param.method} under resource {resource_param.path}...')
@@ -578,8 +608,7 @@ def __handle_integration_updates(gateway_client, gateway_params):
     #   2. even if specified in gateway_params.resources, if there exists another integration method
     #       that was not otherwise specified in gateway_params.resources[i]'s then that should also
     #       be deleted
-    if gateway_params.implicit_deletion:
-        __implicit_delete_integration_methods(gateway_client, gateway_params)
+    __implicit_delete_integration_methods(gateway_client, gateway_params)
 
     # after deleting all integration methods, it is time to reconfigure lambda functions to work
     # with the specified endpoints... note that gateway_params.resources is guaranteed to exist in 
@@ -606,9 +635,11 @@ def __handle_api_gateway_deployment(gateway_client, gateway_params):
 
     logging(f'Created API deployment {gateway_params.api_name} under stage {gateway_params.deployment_stage}' + \
                 f'\n{utils.Constants.TAB}url: {invoke_url}')
+    
+    return resp
 
 # create a new function that deploys the api gateway
-def deploy_api_gateway(gateway_params):
+def deploy_rest_api(gateway_params):
     logging(f'Deploying API Gateway...')
 
     gateway_client = session.client('apigateway')
@@ -628,23 +659,23 @@ def deploy_api_gateway(gateway_params):
     if gateway_params.resources:
         __handle_integration_updates(gateway_client, gateway_params)
 
-    if gateway_params.implicit_deletion and not gateway_params.resources:
-        logging('No deployment issued, no resources exist on the API')
-    else:
-        # after setting up all methods and integrations, simply deploy this new version of the api
-        try:
-            __handle_api_gateway_deployment(gateway_client, gateway_params)
-        except Exception as e:
-            logging(e, utils.Colors.RED)
+    # after setting up all methods and integrations, simply deploy this new version of the api
+    try:
+        return __handle_api_gateway_deployment(gateway_client, gateway_params)
+    except Exception as e:
+        logging(e, utils.Colors.RED)
 
-def remove_api_gateway(gateway_params: RestAPIGatewayParams):
+def remove_rest_api(gateway_params: RestAPIGatewayParams):
     gateway_client = session.client('apigateway')
     cur_api = __get_api_from_name(gateway_client, gateway_params)
 
     if not cur_api:
         logging('Error: api specified for removal does not exist!')
+        raise Exception('Specified API does not exist!')
     else:
         # find all the integrations and remove everything associated with 
         # permissions attached to this api.
         # repopulate the api resource data
+        __remove_all_associated_gateway_lambda_policies(gateway_client, gateway_params)
+
         gateway_client.delete_rest_api(restApiId=gateway_params._rest_api_id)
