@@ -153,9 +153,22 @@ class DynamoDBParams:
 
     read_capacity_units = 1
     write_capacity_units = 1
+
     
     _HASH = 'HASH'
     _RANGE = 'RANGE'
+
+    def __init__(self):
+        # reset everything as a defensive mechanism to prevent static type influencing variables
+        self.table_name = None
+        self.attributes = []
+        self.partition_key, self.partition_key_type = None, None
+        self.sort_key, self.sort_key_type = None, None
+        self.billing_mode = 'PROVISIONED'
+        self.read_capacity_units = 1
+        self.write_capacity_units = 1
+        self._HASH = 'HASH'
+        self._RANGE = 'RANGE'
 
     
     def add_local_secondary_index(self, attr, data_type):

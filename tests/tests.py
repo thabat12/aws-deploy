@@ -33,7 +33,7 @@ class LambdaTests(unittest.TestCase):
         self.session = None
         self.deployment_details = None
 
-    @unittest.skip('skipping test initialize lambda')
+    # @unittest.skip('skipping test initialize lambda')
     def test_initialize_lambda(self):
         # act
         lambda_params = LambdaParams()
@@ -47,7 +47,7 @@ class LambdaTests(unittest.TestCase):
             'Runtime': LambdaTests.PYTHON38,
             'RoleName': f'{lambda_params.function_name}-lambda-basic-execution-role-auto-created',
         }
-
+        
         # assigning into deployment details to properly handle teardown
         self.deployment_details = deploy_lambda(lambda_params)
 
@@ -55,7 +55,7 @@ class LambdaTests(unittest.TestCase):
         self.assertEqual(self.deployment_details['Runtime'], expected_params['Runtime'])
         self.assertEqual(self.deployment_details['Role'].split('/')[-1].strip(), expected_params['RoleName'])
 
-    @unittest.skip('skip')
+    # @unittest.skip('skip')
     def test_remove_lambda(self):
         # reconstruct from deployment_details
         lambda_params = LambdaParams()
@@ -84,8 +84,6 @@ class DynamoDBTests(unittest.TestCase):
         self.assertEqual(dynamodb_params.table_name, 'test')
         self.assertEqual(dynamodb_params.attributes, [('id', 'S'), ('number', 'N')])
 
-        dynamodb_params = DynamoDBParams()
-
     def test_create_table_sort_and_partition(self):
         dynamodb_params = DynamoDBParams()
         dynamodb_params.table_name = 'test'
@@ -112,7 +110,7 @@ class DynamoDBTests(unittest.TestCase):
         dynamodb_params.add_local_secondary_index('height', 'N')
 
         deploy_dynamodb(dynamodb_params)
-
+        
         self.table_name = 'test2'
 
 if __name__ == "__main__":
