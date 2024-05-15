@@ -193,8 +193,20 @@ class ECRParams:
         self._registry_id = None
         self._repository_uri = None
 
-        # I will leave actually getting the docker image set up as something
-        #   to do on my own... it's not that bad where you would need to abstract
-        #   that also
+class ECSParams:
 
-        # self.dockerfile_path = None
+    class ContainerParams:
+        def __init__(self):
+            pass
+
+    def __init__(self):
+        self.cluster_name = None
+        self.task_name = None
+        self._capacity_providers = []
+        self._network_mode = 'bridge'
+
+    def add_capacity_provider(self, provider):
+        if provider != 'FARGATE' and provider != 'FARGATE_SPOT':
+            raise Exception('Invaild provider string provided! Must be either FARGATE, FARGATE_SPOT')
+        self._capacity_providers.append(provider)
+        self._network_mode = 'awsvpc'

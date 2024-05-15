@@ -1,11 +1,13 @@
 import botocore.exceptions
 import docker
 import botocore
+from botocore.client import BaseClient
 import base64
+import subprocess
 
 import aws_deploy.utils as utils
 from aws_deploy.utils import session, logging
-from aws_deploy.params import ECRParams
+from aws_deploy.params import ECRParams, ECSParams
 
 def deploy_ecr_image(ecr_params: ECRParams):
 
@@ -41,7 +43,14 @@ def deploy_ecr_image(ecr_params: ECRParams):
     except Exception as e:
         raise e
 
-    docker_client = docker.from_env()
+    docker_client = None
+
+    try:
+        docker_client = docker.from_env()
+    except Exception as e:
+        logging('Docker client failed to initialize! Check if Docker Engine is running.', utils.Colors.RED)
+        raise e
+
     img = docker_client.images.get(f'{ecr_params.image_name}')
     img.tag(
         repository=ecr_params._repository_uri,
@@ -110,3 +119,20 @@ def remove_ecr_image(ecr_params: ECRParams):
         ecr_client.delete_repository(
             repositoryName=ecr_params.repository_name
         )
+
+def deploy_ecs(ecs_params: ECSParams):
+    ecs_client = session.client('ecs')
+    
+    # ecs:CreateCluster
+    ecs_client.create_cluster(
+        clusterName=ecs_params.cluster_name,
+    )
+
+    logging(f'Created new ECS cluster with name {ecs_params.cluster_name}')
+
+    ecs_client.register_task_definition(
+        
+    )
+
+def remove_ecs(ecs_params):
+    pass
