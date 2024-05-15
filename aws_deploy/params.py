@@ -183,3 +183,18 @@ class DynamoDBParams:
         self.sort_key = sort
         self.sort_key_type = sort_type
         self.attributes.append((sort, sort_type))
+
+class ECRParams:
+    def __init__(self):
+        self.repository_name = None
+        self.image_name = None
+        self.image_tag = None
+
+        self._registry_id = None
+        self._repository_uri = None
+
+        # I will leave actually getting the docker image set up as something
+        #   to do on my own... it's not that bad where you would need to abstract
+        #   that also
+
+        # self.dockerfile_path = None

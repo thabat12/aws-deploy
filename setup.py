@@ -8,7 +8,8 @@ import botocore.exceptions
 
 from aws_deploy.functions import deploy_lambda, remove_lambda
 from aws_deploy.gateway import deploy_rest_api, remove_rest_api
-from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams
+from aws_deploy.params import LambdaParams, CognitoParams, RestAPIGatewayParams, ECRParams
+from aws_deploy.docker import deploy_ecr_image
 
 from aws_deploy.utils import Constants, logging, session
 import aws_deploy.utils as utils
@@ -22,19 +23,9 @@ if resp['ResponseMetadata']['HTTPStatusCode'] == 200:
 else:
     logging(f'Bad Request: HTTP status code: {resp["HttpStatusCode"]}', utils.Colors.RED)
 
+ecr_params = ECRParams()
+ecr_params.repository_name = 'myrepo'
+ecr_params.image_name = 'go-app'
+ecr_params.image_tag = 'v2'
 
-lambda_params = LambdaParams()
-lambda_params.function_name = 'gateway_example'
-lambda_params.code_folder_filepath = './tests/test_data'
-lambda_params.deployment_package_files = ['gateway_function.py']
-lambda_params.handler_method = 'gateway_function.lambda_handler'
-deploy_lambda(lambda_params)
-
-gateway_params = RestAPIGatewayParams()
-gateway_params.api_name = 'test'
-gateway_params.add_resource('/a/b/c', 'gateway_example', 'GET')
-
-deploy_rest_api(gateway_params)
-remove_rest_api(gateway_params)
-
-remove_lambda(lambda_params)
+deploy_ecr_image(ecr_params)
