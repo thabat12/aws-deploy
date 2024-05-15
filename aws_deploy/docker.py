@@ -73,4 +73,40 @@ def deploy_ecr_image(ecr_params: ECRParams):
         logging(log, utils.Colors.YELLOW)
 
 def remove_ecr_image(ecr_params: ECRParams):
-    pass
+    
+    ecr_client = session.client('ecr')
+
+    # ecr:DescribeImages
+    resp = ecr_client.describe_images(
+        repositoryName=ecr_params.repository_name,
+        imageIds=[
+            {
+                'imageTag': ecr_params.image_tag
+            }
+        ]
+    )
+
+    img_digest = resp['imageDetails'][0]['imageDigest']
+
+    # ecr:BatchDeleteImage
+    ecr_client.batch_delete_image(
+        repositoryName=ecr_params.repository_name,
+        imageIds=[
+            {
+                'imageDigest': img_digest
+            }
+        ]
+    )
+
+    # ecr:ListImages
+    images = ecr_client.list_images(
+        repositoryName=ecr_params.repository_name
+    )
+
+    logging(images, utils.Colors.MAGENTA)
+
+    if not images['imageIds']:
+        # ecr:DeleteRepository
+        ecr_client.delete_repository(
+            repositoryName=ecr_params.repository_name
+        )
