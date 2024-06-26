@@ -34,7 +34,8 @@ ecr_params.image_tag = 'v1'
 deploy_ecr_image(ecr_params)
 # remove_ecr_image(ecr_params)
 
-# ecs_params = ECSParams()
-# ecs_params.cluster_name = 'boto3cluster'
+ecs_params = ECSParams()
+ecs_params.cluster_name = 'boto3cluster'
+ecs_params.capacity_providers = ['FARGATE', 'FARGATE_SPOT']
 
-# deploy_ecs(ecs_params)
+deploy_ecs(ecs_params)

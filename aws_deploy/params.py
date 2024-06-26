@@ -1,3 +1,6 @@
+from typing import Any
+
+
 class LambdaParams:
     function_name = None
     runtime = 'python3.8'
@@ -195,6 +198,11 @@ class ECRParams:
 
 class ECSParams:
 
+    capacity_providers = []
+    _tag_name = None
+    _acceptable_capacity_providers = set(['FARGATE', 'FARGATE_SPOT', 'EC2'])
+    
+
     class ContainerParams:
         def __init__(self):
             pass
@@ -202,11 +210,20 @@ class ECSParams:
     def __init__(self):
         self.cluster_name = None
         self.task_name = None
-        self._capacity_providers = []
         self._network_mode = 'bridge'
 
-    def add_capacity_provider(self, provider):
-        if provider != 'FARGATE' and provider != 'FARGATE_SPOT':
-            raise Exception('Invaild provider string provided! Must be either FARGATE, FARGATE_SPOT')
-        self._capacity_providers.append(provider)
-        self._network_mode = 'awsvpc'
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == 'cluster_name':
+            self._tag_name = f'tag-{name}'
+
+        elif name == 'capacity_providers':
+            for n in value:
+                if n not in self._acceptable_capacity_providers:
+                    raise Exception('Invaild provider string provided! Must be either FARGATE, FARGATE_SPOT, or EC2')
+                
+                # TODO: figure out if setting to EC2 has any issues with this
+                if 'FARGATE' in n:
+                    self._network_mode = 'awsvpc'
+                
+
+        super().__setattr__(name, value)

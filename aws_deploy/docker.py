@@ -122,17 +122,34 @@ def remove_ecr_image(ecr_params: ECRParams):
 
 def deploy_ecs(ecs_params: ECSParams):
     ecs_client = session.client('ecs')
+
+    # ecs:ListClusters
+    resp = ecs_client.list_clusters()
+    cluster_arns = filter(lambda name: ecs_params.cluster_name == name.split('/')[-1], resp['clusterArns'])
+
+    while 'nextToken' in resp.keys():
+        resp = ecs_client.list_clusters(nextToken=resp['nextToken'])
+        cluster_arns = filter(lambda name: ecs_params.cluster_name == name.split('/')[-1], resp['clusterArns'])
+        if cluster_arns: break
+
+    if not cluster_arns:
+        # ecs:CreateCluster
+        # ecs:TagResource
+        ecs_client.create_cluster(
+            clusterName=ecs_params.cluster_name,
+            tags=[ {'key': 'tag', 'value': ecs_params._tag_name} ],
+            capacityProviders=ecs_params.capacity_providers
+        )
+
+        logging(f'Created new ECS cluster with name {ecs_params.cluster_name}')
+    else:
+        logging(f'ECS cluster with name {ecs_params.cluster_name} already exists')
+
+
+    # REGISTER A TASK DEFINITION
     
-    # ecs:CreateCluster
-    ecs_client.create_cluster(
-        clusterName=ecs_params.cluster_name,
-    )
 
-    logging(f'Created new ECS cluster with name {ecs_params.cluster_name}')
-
-    ecs_client.register_task_definition(
-        
-    )
+    
 
 def remove_ecs(ecs_params):
     pass
