@@ -24,14 +24,17 @@ else:
     logging(f'Bad Request: HTTP status code: {resp["HttpStatusCode"]}', utils.Colors.RED)
 
 ecr_params = ECRParams()
-ecr_params.repository_name = 'myrepo'
-ecr_params.image_name = 'go-app'
-ecr_params.image_tag = 'v2'
+# the image "bucket" that you submit into
+ecr_params.repository_name = 'simple-web-container-repo'
+# the image that is already built that is to be placed in that bucket
+ecr_params.image_name = 'simple-web-container'
+# a certain tag to give to that image for identificaiton purposes
+ecr_params.image_tag = 'v1'
 
-# deploy_ecr_image(ecr_params)
+deploy_ecr_image(ecr_params)
 # remove_ecr_image(ecr_params)
 
-ecs_params = ECSParams()
-ecs_params.cluster_name = 'boto3cluster'
+# ecs_params = ECSParams()
+# ecs_params.cluster_name = 'boto3cluster'
 
-deploy_ecs(ecs_params)
+# deploy_ecs(ecs_params)

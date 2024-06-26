@@ -9,8 +9,8 @@ import boto3
 s = os.path.abspath(os.path.join(__file__, '../..'))
 sys.path.append(s)
 
-from aws_deploy.deploy import deploy_lambda, remove_lambda
-from aws_deploy.deploy import deploy_dynamodb, remove_dynamodb
+from aws_deploy.functions import deploy_lambda, remove_lambda
+from aws_deploy.dynamodb import deploy_dynamodb, remove_dynamodb
 from aws_deploy.params import LambdaParams, DynamoDBParams
 
 # Arrange, Act, Assert model of testing
