@@ -1,3 +1,4 @@
+import json
 import botocore.exceptions
 import docker
 import botocore
@@ -78,8 +79,12 @@ def deploy_ecr_image(ecr_params: ECRParams):
     # requires the ecr:PutImage action
     push_logs = docker_client.images.push(ecr_params._repository_uri, stream=True, decode=True)
 
-    for log in push_logs:
+    for log in push_logs: 
         logging(log, utils.Colors.YELLOW)
+
+    return {
+        'proxy_endpoint': proxy_endpoint
+    }
 
 def remove_ecr_image(ecr_params: ECRParams):
     
@@ -147,7 +152,48 @@ def deploy_ecs(ecs_params: ECSParams):
 
 
     # REGISTER A TASK DEFINITION
-    
+
+
+
+    # ensure role is created with the necessary tag to allow for reference for potential deletion
+    # of the iam role
+    iam_client = session.client('iam')
+
+
+    try:
+        iam_client.get_role(ecs_client._ecs_task_execution_role_name)
+    except:
+        logging(f'Creating and attaching new IAM role {ecs_client._task_execution_role_name} to task definition')
+        sts_client = session.client('sts')
+        resp = sts_client.get_caller_identity()
+        user_name = None
+
+        if resp['ResponseMetadata']['HTTPStatusCode'] == 200:
+            user_name = resp["Arn"].split("/")[1]
+        else:
+            raise Exception('Log In to user unsuccessful')
+        
+        if not user_name:
+            raise Exception('user_name remains undefined')
+
+        iam_client.create_role(
+            RoleName=ecs_client._ecs_task_execution_role_name,
+            AssumeRolePolicyDocument=json.dumps(ecs_client._ecs_trust_policy),
+            Tags=[ { 'Key': 'Creator', 'Value': user_name } ]
+        )
+
+        # deploy & retrieve function arn
+        iam_client.put_role_policy(
+            RoleName=ecs_client._ecs_task_execution_role_name,
+            PolicyName=ecs_client._ecs_task_execution_policy_name,
+            PolicyDocument=json.dumps(ecs_client._ecs_task_execution_role)
+        )
+
+        ecs_client.register_task_definition(
+            family=ecs_params.task_definition_name,
+            # taskRoleArn
+
+        )
 
     
 

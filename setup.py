@@ -31,7 +31,8 @@ ecr_params.image_name = 'simple-web-container'
 # a certain tag to give to that image for identificaiton purposes
 ecr_params.image_tag = 'v1'
 
-deploy_ecr_image(ecr_params)
+resp = deploy_ecr_image(ecr_params)
+logging(resp, utils.Colors.RED)
 # remove_ecr_image(ecr_params)
 
 ecs_params = ECSParams()
