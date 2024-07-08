@@ -31,12 +31,19 @@ ecr_params.image_name = 'simple-web-container'
 # a certain tag to give to that image for identificaiton purposes
 ecr_params.image_tag = 'v1'
 
-resp = deploy_ecr_image(ecr_params)
+# resp = deploy_ecr_image(ecr_params)
 logging(resp, utils.Colors.RED)
 # remove_ecr_image(ecr_params)
 
 ecs_params = ECSParams()
 ecs_params.cluster_name = 'boto3cluster'
 ecs_params.capacity_providers = ['FARGATE', 'FARGATE_SPOT']
+'''
+plan on how to do this
+
+
+
+
+'''
 
 deploy_ecs(ecs_params)
