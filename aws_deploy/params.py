@@ -1,10 +1,10 @@
 from typing import Any
 
-from utils import session
+from aws_deploy.utils import session
 
-iam_client = session.client('iam')
+iam_client = session.client('sts')
 resp = iam_client.get_caller_identity()
-user_arn = resp["Arn"].split("/")[1]
+user_arn = resp["Arn"]
 
 class LambdaParams:
     function_name = None
@@ -130,7 +130,7 @@ class RestAPIGatewayParams:
 
         # internal function stuff
         _resource_id = None
-        _type = 'AWS'
+        _type = 'AWS_PROXY'  # Use AWS_PROXY for Lambda proxy integration
         _connection_type = 'INTERNET'
         _http_method = 'POST'
         _authorization_type = 'NONE'
@@ -204,7 +204,7 @@ class ECRParams:
 
 class TaskDefinitionParams:
     family = 'default'
-    _task_role_arn: function = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name or 'default'}'
+    _task_role_arn = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name or 'default'}'
     _execution_role_arn = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name}'
     _network_mode = 'awsvpc'
 

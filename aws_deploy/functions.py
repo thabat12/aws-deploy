@@ -82,7 +82,7 @@ def __create_lambda_basic_execution_role(lambda_client, lambda_params: LambdaPar
     user_name = None
 
     if resp['ResponseMetadata']['HTTPStatusCode'] == 200:
-        user_name = resp["Arn"].split("/")[1]
+        user_name = resp["Arn"]
     else:
         raise Exception('Log In to user unsuccessful')
     
