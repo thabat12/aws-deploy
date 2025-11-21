@@ -1,9 +1,0 @@
----
-alwaysApply: true
----
-
-Do not over-do the comments.
-
-Ensure to always read the file before making changes.
-
-Do not include docstrings for every function unless instructed to do so specifically.
