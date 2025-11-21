@@ -86,3 +86,21 @@ remove_lambda(params)
 ```
 
 <p>In that way, resources in aws_deploy are primarily specified by their name. If you have conflicting resource names in aws_deploy, note that unexpected behaviors may occur because boto3 will not be able to handle name conflicts without futher identification parameters.</p>
+
+<h3>Installing aws-deploy</h3>
+
+<p>Currently, this package is still under active deployment and is not on any source distribution yet. In order to use this package you will need to install it locally on your computer. The recommendation is to install this as a Python package in <code>edit</code> mode</p>
+
+```
+# Normal installation
+pip install -e .
+
+# Or with test dependencies
+pip install -e . [test]
+```
+
+<p>You may ensure that the package is working properly by running pytest on the source code</p>
+
+```
+python -m pytest
+```

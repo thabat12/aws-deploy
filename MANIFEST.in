@@ -1,0 +1,8 @@
+# Include documentation and configuration files in source distributions
+include README.md
+include requirements.txt
+include pytest.ini
+
+# Include assets directory
+recursive-include assets *
+

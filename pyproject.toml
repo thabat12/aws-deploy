@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aws-deploy"
+version = "0.1.0"
+authors = [
+    {name = "Abhinav Bichal"}
+]
+description = "A tool to deploy AWS services programmatically with comprehensive deployment details"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}  # Update with your actual license if different
+keywords = ["aws", "deployment", "boto3", "lambda", "api-gateway", "dynamodb", "ecr", "ecs"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "boto3>=1.26.0",
+    "botocore>=1.29.0",
+    "docker>=6.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-cov>=4.0.0",
+    "moto>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/abhinavbichal/aws-deploy"  # Update with your actual repo URL
+Repository = "https://github.com/abhinavbichal/aws-deploy"  # Update with your actual repo URL
+Issues = "https://github.com/abhinavbichal/aws-deploy/issues"  # Update with your actual repo URL
+
+[tool.setuptools]
+# Automatically discover packages
+packages = {find = {}}
+# Note: For including non-Python files in source distributions, see MANIFEST.in
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings",
+    "--cov=aws_deploy",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+

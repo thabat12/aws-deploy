@@ -5,3 +5,14 @@ tests/manual/
 .cursor/
 htmlcov/
 .coverage
+
+# Python packaging artifacts
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+*.pyc
+*.pyo
+*.pyd
+.Python
