@@ -2,3 +2,6 @@
 *.pytest_cache
 *ignore_folder*
 tests/manual/
+.cursor/
+htmlcov/
+.coverage
