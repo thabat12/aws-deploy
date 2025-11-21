@@ -5,7 +5,7 @@ import botocore
 
 from aws_deploy.params import RestAPIGatewayParams
 from aws_deploy.utils import logging, session
-from aws_deploy.functions import get_lambda_function_from_name
+from aws_deploy.functions import get_lambda_function_details
 import aws_deploy.utils as utils
 
 class ResourceTreeNode:
@@ -451,7 +451,7 @@ def __remove_all_associated_gateway_lambda_policies(gateway_client, gateway_para
 
     for im in integration_methods:
 
-        function_spec = get_lambda_function_from_name(im.function_name)
+        function_spec = get_lambda_function_details(im.function_name)
 
         statement_sid = f'{gateway_params.api_name}-{gateway_params._rest_api_id}-' + \
         f'{im._resource_id}-{im.method}-invokeFunction'
@@ -510,7 +510,7 @@ def __update_integration_method(gateway_client, gateway_params: RestAPIGatewayPa
 def __create_integration_method(gateway_client, gateway_params, resource_param: RestAPIGatewayParams.ResourceParams):
     logging(f'Creating integration method {resource_param.method} under resource {resource_param.path}')
 
-    function_details = get_lambda_function_from_name(resource_param.function_name)
+    function_details = get_lambda_function_details(resource_param.function_name)
     function_arn = function_details['Configuration']['FunctionArn']
 
     if function_details is None:

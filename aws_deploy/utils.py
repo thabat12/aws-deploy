@@ -1,4 +1,5 @@
 import boto3
+from functools import lru_cache
 
 # modify this for various settings in local dev environment
 class Constants:
@@ -24,3 +25,20 @@ session = boto3.Session(
     profile_name=Constants.PROFILE,
     region_name=Constants.REGION_NAME
 )
+
+
+@lru_cache(maxsize=None)
+def get_client(service_name: str):
+    """
+    Get a cached AWS service client.
+    
+    Uses LRU cache to avoid creating multiple client instances for the same service.
+    This improves performance by reusing client connections.
+    
+    Args:
+        service_name: Name of the AWS service (e.g., 'lambda', 'iam', 'sts')
+        
+    Returns:
+        boto3 client: Cached client for the specified service
+    """
+    return session.client(service_name)

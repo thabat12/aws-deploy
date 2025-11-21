@@ -18,6 +18,34 @@ class LambdaParams:
     _function_arn = None
     _role_arn = None  
 
+    _default_trust_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "lambda.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    }
+
+    _default_lambda_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                "Resource": "*"
+            }
+        ]
+    }
+
 class CognitoParams:
     pool_name = 'developedWithCode'
     pool_id = None
@@ -204,7 +232,7 @@ class ECRParams:
 
 class TaskDefinitionParams:
     family = 'default'
-    _task_role_arn = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name or 'default'}'
+    _task_role_arn = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name or "default"}'
     _execution_role_arn = lambda role_name: f'arn:aws:iam::{user_arn}:role/{role_name}'
     _network_mode = 'awsvpc'
 
