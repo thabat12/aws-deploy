@@ -4,7 +4,11 @@ Tests for aws_deploy.functions module.
 This module contains tests for Lambda function deployment and management.
 """
 import json
-from unittest.mock import call
+import os
+import tempfile
+import zipfile
+from io import BytesIO
+from unittest.mock import call, patch
 
 import pytest
 from datetime import datetime
@@ -16,6 +20,12 @@ from aws_deploy.functions import (
     __get_lambda_role_from_name,
     __generate_auto_role_name,
     __create_lambda_basic_execution_role,
+    _wait_for_role_to_exist,
+    __create_deployment_package,
+    __create_lambda_function,
+    __update_lambda_function,
+    deploy_lambda,
+    remove_lambda,
 )
 from aws_deploy.params import LambdaParams
 
@@ -342,7 +352,7 @@ def test_create_lambda_basic_execution_role_sts_failure(
 
 
 def test_create_lambda_basic_execution_role_waiter_error(
-    mock_get_client, role_fixture, aws_account_fixture
+    mock_get_client
 ):
     lambda_params = LambdaParams()
     lambda_params.function_name = 'test-function'
@@ -353,3 +363,610 @@ def test_create_lambda_basic_execution_role_waiter_error(
     
     with pytest.raises(RuntimeError, match='Waiter failed'):
         __create_lambda_basic_execution_role(lambda_params)
+
+
+# _wait_for_role_to_exist tests
+@pytest.mark.parametrize('timeout', [1, 2])
+@pytest.mark.parametrize('max_attempts', [3, 5])
+@pytest.mark.parametrize('failure_count', [0, 2, 3])
+def test_wait_for_role_to_exist(
+    mock_get_client,
+    timeout,
+    max_attempts,
+    failure_count
+):
+    lambda_params = LambdaParams()
+    lambda_params._role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    
+    iam_client = mock_get_client.side_effect('iam')
+    
+    get_role_calls = [
+        ClientError(
+            {'Error': {'Code': 'NoSuchEntity'}}, 'GetRole'
+        )
+        for _ in range(failure_count)
+    ]
+    if failure_count < max_attempts:
+        get_role_calls.append({'Role': {'RoleName': 'test-role'}})
+    else:
+        remaining_failures = max_attempts - failure_count
+        get_role_calls.extend([
+            ClientError({'Error': {'Code': 'NoSuchEntity'}}, 'GetRole')
+            for _ in range(remaining_failures)
+        ])
+    
+    iam_client.get_role.side_effect = get_role_calls
+    
+    with patch('aws_deploy.functions.time.sleep'):
+        if failure_count < max_attempts:
+            _wait_for_role_to_exist(lambda_params, timeout, max_attempts)
+            assert iam_client.get_role.call_count == failure_count + 1
+        else:
+            with pytest.raises(Exception, match='The role does not exist!'):
+                _wait_for_role_to_exist(lambda_params, timeout, max_attempts)
+            assert iam_client.get_role.call_count == max_attempts
+
+
+# __create_deployment_package tests
+def test_create_deployment_package_recursive_all_files():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.makedirs(os.path.join(tmpdir, 'subdir'))
+        
+        file1 = os.path.join(tmpdir, 'file1.py')
+        file2 = os.path.join(tmpdir, 'subdir', 'file2.py')
+        
+        with open(file1, 'w') as f:
+            f.write('content1')
+        with open(file2, 'w') as f:
+            f.write('content2')
+        
+        lambda_params = LambdaParams()
+        lambda_params.code_folder_filepath = tmpdir
+        lambda_params.deployment_package_files = None
+        
+        result = __create_deployment_package(lambda_params)
+        
+        with zipfile.ZipFile(BytesIO(result), 'r') as zip_file:
+            names = sorted(zip_file.namelist())
+            assert 'file1.py' in names
+            assert 'subdir/file2.py' in names
+            assert zip_file.read('file1.py') == b'content1'
+            assert zip_file.read('subdir/file2.py') == b'content2'
+
+
+def test_create_deployment_package_specific_files():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file1 = os.path.join(tmpdir, 'file1.py')
+        file2 = os.path.join(tmpdir, 'file2.txt')
+        file3 = os.path.join(tmpdir, 'file3.py')
+        
+        with open(file1, 'w') as f:
+            f.write('content1')
+        with open(file2, 'w') as f:
+            f.write('content2')
+        with open(file3, 'w') as f:
+            f.write('content3')
+        
+        lambda_params = LambdaParams()
+        lambda_params.code_folder_filepath = tmpdir
+        lambda_params.deployment_package_files = ['file1.py', 'file2.txt']
+        
+        result = __create_deployment_package(lambda_params)
+        
+        with zipfile.ZipFile(BytesIO(result), 'r') as zip_file:
+            names = sorted(zip_file.namelist())
+            assert 'file1.py' in names
+            assert 'file2.txt' in names
+            assert 'file3.py' not in names
+            assert zip_file.read('file1.py') == b'content1'
+            assert zip_file.read('file2.txt') == b'content2'
+
+
+@pytest.mark.parametrize(
+    'file_spec,expected_error',
+    [
+        ('../outside_file.py', ValueError),
+        ('subdir', ValueError),
+        ('nonexistent.py', FileNotFoundError),
+    ],
+    ids=[
+        'file_outside_directory',
+        'directory_not_allowed',
+        'file_not_found',
+    ]
+)
+def test_create_deployment_package_validation_errors(file_spec, expected_error):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subdir = os.path.join(tmpdir, 'subdir')
+        os.makedirs(subdir)
+        
+        file1 = os.path.join(tmpdir, 'file1.py')
+        with open(file1, 'w') as f:
+            f.write('content1')
+        
+        lambda_params = LambdaParams()
+        lambda_params.code_folder_filepath = tmpdir
+        lambda_params.deployment_package_files = [file_spec]
+        
+        with pytest.raises(expected_error):
+            __create_deployment_package(lambda_params)
+
+
+# __create_lambda_function tests
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_create_lambda_function_success(mock_wait, mock_get_client):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    result = __create_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    lambda_client.create_function.assert_called_once_with(
+        FunctionName='test-function',
+        Runtime='python3.11',
+        Role=role_arn,
+        Handler='handler.lambda_handler',
+        Code={'ZipFile': zip_data}
+    )
+    assert result['FunctionName'] == 'test-function'
+    assert 'FunctionArn' in result
+    assert result['Runtime'] == 'python3.11'
+    assert result['Handler'] == 'handler.lambda_handler'
+    assert result['Role'] == role_arn
+    mock_wait.assert_not_called()
+
+
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_create_lambda_function_invalid_parameter_wait_succeeds(mock_wait, mock_get_client, functions_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function-retry'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params._role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    invalid_param_error = ClientError(
+        {'Error': {'Code': 'InvalidParameterValueException'}},
+        'CreateFunction'
+    )
+    
+    call_count = {'count': 0}
+    original_side_effect = lambda_client.create_function.side_effect
+    
+    def create_function_side_effect(*args, **kwargs):
+        call_count['count'] += 1
+        if call_count['count'] == 1:
+            raise invalid_param_error
+        return original_side_effect(*args, **kwargs)
+    
+    lambda_client.create_function.side_effect = create_function_side_effect
+    mock_wait.return_value = None
+    
+    result = __create_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    assert lambda_client.create_function.call_count == 2
+    mock_wait.assert_called_once_with(lambda_params)
+    assert result['FunctionName'] == 'test-function-retry'
+    assert result['Runtime'] == 'python3.11'
+    assert result['Handler'] == 'handler.lambda_handler'
+    assert result['Role'] == role_arn
+
+
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_create_lambda_function_invalid_parameter_wait_fails(mock_wait, mock_get_client):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params._role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    invalid_param_error = ClientError(
+        {'Error': {'Code': 'InvalidParameterValueException'}},
+        'CreateFunction'
+    )
+    lambda_client.create_function.side_effect = invalid_param_error
+    mock_wait.side_effect = Exception('The role does not exist!')
+    
+    with pytest.raises(Exception, match='The role does not exist!'):
+        __create_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    lambda_client.create_function.assert_called_once()
+    mock_wait.assert_called_once_with(lambda_params)
+
+
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_create_lambda_function_general_exception(mock_wait, mock_get_client):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    connection_error = ConnectionError('Connection failed')
+    lambda_client.create_function.side_effect = connection_error
+    
+    with pytest.raises(ConnectionError, match='Connection failed'):
+        __create_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    lambda_client.create_function.assert_called_once()
+    mock_wait.assert_not_called()
+
+
+# __update_lambda_function tests
+@patch('aws_deploy.functions.time.sleep')
+def test_update_lambda_function_success(mock_sleep, mock_get_client, functions_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'existing-function'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'updated_zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    functions_fixture['existing-function'] = {
+        'Configuration': {
+            'FunctionName': 'existing-function',
+            'FunctionArn': 'arn:aws:lambda:us-east-2:123456789012:function:existing-function',
+            'Runtime': 'python3.11',
+            'Role': 'arn:aws:iam::123456789012:role/old-role',
+            'Handler': 'old_handler.lambda_handler',
+            'CodeSize': 100,
+            'LastUpdateStatus': 'Successful',
+            'LastModified': datetime(2025, 1, 1).isoformat() + '+00:00',
+        }
+    }
+    
+    result = __update_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    lambda_client.update_function_configuration.assert_called_once_with(
+        FunctionName='existing-function',
+        Role=role_arn,
+        Handler='handler.lambda_handler'
+    )
+    
+    lambda_client.update_function_code.assert_called_once_with(
+        FunctionName='existing-function',
+        ZipFile=zip_data
+    )
+    
+    assert result['FunctionName'] == 'existing-function'
+    assert result['Role'] == role_arn
+    assert result['Handler'] == 'handler.lambda_handler'
+    assert result['LastUpdateStatus'] == 'Successful'
+    mock_sleep.assert_not_called()
+
+
+@patch('aws_deploy.functions.time.sleep')
+def test_update_lambda_function_waits_for_in_progress(mock_sleep, mock_get_client, functions_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'existing-function'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'updated_zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    functions_fixture['existing-function'] = {
+        'Configuration': {
+            'FunctionName': 'existing-function',
+            'FunctionArn': 'arn:aws:lambda:us-east-2:123456789012:function:existing-function',
+            'Runtime': 'python3.11',
+            'Role': 'arn:aws:iam::123456789012:role/old-role',
+            'Handler': 'old_handler.lambda_handler',
+            'CodeSize': 100,
+            'LastUpdateStatus': 'Successful',
+            'LastModified': datetime(2025, 1, 1).isoformat() + '+00:00',
+        }
+    }
+    
+    call_count = {'count': 0}
+    
+    def update_function_configuration_side_effect(*args, **kwargs):
+        functions_fixture['existing-function']['Configuration']['Role'] = kwargs.get('Role')
+        functions_fixture['existing-function']['Configuration']['Handler'] = kwargs.get('Handler')
+        functions_fixture['existing-function']['Configuration']['LastUpdateStatus'] = 'InProgress'
+        return functions_fixture['existing-function']['Configuration'].copy()
+    
+    def get_function_side_effect(*args, **kwargs):
+        call_count['count'] += 1
+        if call_count['count'] <= 2:
+            functions_fixture['existing-function']['Configuration']['LastUpdateStatus'] = 'InProgress'
+        else:
+            functions_fixture['existing-function']['Configuration']['LastUpdateStatus'] = 'Successful'
+        return functions_fixture['existing-function']
+    
+    lambda_client.update_function_configuration.side_effect = update_function_configuration_side_effect
+    lambda_client.get_function.side_effect = get_function_side_effect
+    
+    result = __update_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    assert lambda_client.update_function_configuration.call_count == 1
+    assert lambda_client.get_function.call_count >= 3
+    assert lambda_client.update_function_code.call_count == 1
+    assert result['LastUpdateStatus'] == 'Successful'
+    assert mock_sleep.call_count >= 1
+
+
+@patch('aws_deploy.functions.time.sleep')
+def test_update_lambda_function_exception(mock_sleep, mock_get_client, functions_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'existing-function'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    
+    role_arn = 'arn:aws:iam::123456789012:role/test-role'
+    zip_data = b'updated_zip_content'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    functions_fixture['existing-function'] = {
+        'Configuration': {
+            'FunctionName': 'existing-function',
+            'FunctionArn': 'arn:aws:lambda:us-east-2:123456789012:function:existing-function',
+            'Runtime': 'python3.11',
+            'Role': 'arn:aws:iam::123456789012:role/old-role',
+            'Handler': 'old_handler.lambda_handler',
+            'CodeSize': 100,
+            'LastUpdateStatus': 'Successful',
+            'LastModified': datetime(2025, 1, 1).isoformat() + '+00:00',
+        }
+    }
+    
+    update_error = ConnectionError('Failed to update function')
+    lambda_client.update_function_configuration.side_effect = update_error
+    
+    with pytest.raises(ConnectionError, match='Failed to update function'):
+        __update_lambda_function(lambda_client, lambda_params, role_arn, zip_data)
+    
+    lambda_client.update_function_configuration.assert_called_once()
+    lambda_client.update_function_code.assert_not_called()
+
+
+# deploy_lambda tests
+@patch('aws_deploy.functions.__create_deployment_package')
+@patch('aws_deploy.functions.__create_lambda_basic_execution_role')
+@patch('aws_deploy.functions.__get_lambda_role_from_name')
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_deploy_lambda_creates_new_function(
+    mock_wait,
+    mock_get_role,
+    mock_create_role,
+    mock_create_package,
+    mock_get_client,
+    functions_fixture,
+    role_fixture,
+    aws_account_fixture
+):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'new-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params.code_folder_filepath = '/tmp/test'
+    lambda_params.deployment_package_files = []
+    
+    zip_data = b'zip_content'
+    role_arn = f'arn:aws:iam::{aws_account_fixture}:role/new-function-lambda-exec-role'
+    
+    mock_create_package.return_value = zip_data
+    mock_create_role.return_value = {
+        'Role': {
+            'Arn': role_arn
+        }
+    }
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    result = deploy_lambda(lambda_params)
+    
+    mock_create_role.assert_called_once()
+    mock_create_package.assert_called_once_with(lambda_params)
+    lambda_client.create_function.assert_called_once()
+    assert result['FunctionName'] == 'new-function'
+    mock_wait.assert_not_called()
+
+
+@patch('aws_deploy.functions.__create_deployment_package')
+@patch('aws_deploy.functions.__create_lambda_basic_execution_role')
+@patch('aws_deploy.functions.__get_lambda_role_from_name')
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+@patch('aws_deploy.functions.time.sleep')
+def test_deploy_lambda_updates_existing_function(
+    mock_sleep,
+    mock_wait,
+    mock_get_role,
+    mock_create_role,
+    mock_create_package,
+    mock_get_client,
+    functions_fixture,
+    role_fixture,
+    aws_account_fixture
+):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'existing-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params.code_folder_filepath = '/tmp/test'
+    lambda_params.deployment_package_files = []
+    
+    zip_data = b'zip_content'
+    role_arn = f'arn:aws:iam::{aws_account_fixture}:role/existing-function-lambda-exec-role'
+    
+    functions_fixture['existing-function'] = {
+        'Configuration': {
+            'FunctionName': 'existing-function',
+            'FunctionArn': f'arn:aws:lambda:us-east-2:{aws_account_fixture}:function:existing-function',
+            'Runtime': 'python3.11',
+            'Role': role_arn,
+            'Handler': 'handler.lambda_handler',
+            'CodeSize': 100,
+            'LastUpdateStatus': 'Successful',
+            'LastModified': datetime(2025, 1, 1).isoformat() + '+00:00',
+        }
+    }
+    
+    mock_create_package.return_value = zip_data
+    mock_create_role.return_value = {
+        'Role': {
+            'Arn': role_arn
+        }
+    }
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    result = deploy_lambda(lambda_params)
+    
+    mock_create_role.assert_called_once()
+    mock_create_package.assert_called_once_with(lambda_params)
+    lambda_client.update_function_configuration.assert_called_once()
+    lambda_client.update_function_code.assert_called_once()
+    assert result['FunctionName'] == 'existing-function'
+    mock_wait.assert_not_called()
+
+
+@patch('aws_deploy.functions.__create_deployment_package')
+@patch('aws_deploy.functions.__get_lambda_role_from_name')
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_deploy_lambda_with_existing_role(
+    mock_wait,
+    mock_get_role,
+    mock_create_package,
+    mock_get_client,
+    functions_fixture,
+    role_fixture,
+    aws_account_fixture
+):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'new-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params.role_name = 'existing-role'
+    lambda_params.code_folder_filepath = '/tmp/test'
+    lambda_params.deployment_package_files = []
+    
+    zip_data = b'zip_content'
+    role_arn = f'arn:aws:iam::{aws_account_fixture}:role/existing-role'
+    
+    role_fixture['existing-role'] = {
+        'Role': {
+            'Arn': role_arn
+        }
+    }
+    
+    mock_create_package.return_value = zip_data
+    mock_get_role.return_value = role_fixture['existing-role']
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    iam_client = mock_get_client.side_effect('iam')
+    
+    result = deploy_lambda(lambda_params)
+    
+    mock_get_role.assert_called_once_with('existing-role')
+    mock_create_package.assert_called_once_with(lambda_params)
+    lambda_client.create_function.assert_called_once()
+    assert result['FunctionName'] == 'new-function'
+    mock_wait.assert_not_called()
+
+
+@patch('aws_deploy.functions.__create_deployment_package')
+@patch('aws_deploy.functions.__get_lambda_role_from_name')
+@patch('aws_deploy.functions._wait_for_role_to_exist')
+def test_deploy_lambda_role_not_found(
+    mock_wait,
+    mock_get_role,
+    mock_create_package,
+    mock_get_client
+):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'new-function'
+    lambda_params.runtime = 'python3.11'
+    lambda_params.handler_method = 'handler.lambda_handler'
+    lambda_params.role_name = 'non-existent-role'
+    lambda_params.code_folder_filepath = '/tmp/test'
+    lambda_params.deployment_package_files = []
+    
+    mock_get_role.return_value = None
+    
+    with pytest.raises(ValueError, match='IAM role "non-existent-role" does not exist'):
+        deploy_lambda(lambda_params)
+    
+    mock_get_role.assert_called_once_with('non-existent-role')
+    mock_create_package.assert_not_called()
+
+
+# remove_lambda tests
+@patch('aws_deploy.functions.__handle_lambda_remove_role')
+def test_remove_lambda_success_without_auto_role(mock_handle_role, mock_get_client, functions_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    role_arn = 'arn:aws:iam::123456789012:role/custom-role'
+    functions_fixture['test-function'] = {
+        'Configuration': {
+            'FunctionName': 'test-function',
+            'FunctionArn': 'arn:aws:lambda:us-east-2:123456789012:function:test-function',
+            'Role': role_arn,
+        }
+    }
+    
+    remove_lambda(lambda_params)
+    
+    lambda_client.get_function.assert_called_once_with(FunctionName='test-function')
+    lambda_client.delete_function.assert_called_once_with(FunctionName='test-function')
+    mock_handle_role.assert_not_called()
+    assert 'test-function' not in functions_fixture
+
+
+@patch('aws_deploy.functions.__handle_lambda_remove_role')
+def test_remove_lambda_success_with_auto_role(mock_handle_role, mock_get_client, functions_fixture, aws_account_fixture):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'test-function'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    role_arn = f'arn:aws:iam::{aws_account_fixture}:role/test-function-lambda-exec-role'
+    functions_fixture['test-function'] = {
+        'Configuration': {
+            'FunctionName': 'test-function',
+            'FunctionArn': f'arn:aws:lambda:us-east-2:{aws_account_fixture}:function:test-function',
+            'Role': role_arn,
+        }
+    }
+    
+    remove_lambda(lambda_params)
+    
+    lambda_client.get_function.assert_called_once_with(FunctionName='test-function')
+    mock_handle_role.assert_called_once()
+    lambda_client.delete_function.assert_called_once_with(FunctionName='test-function')
+    assert 'test-function' not in functions_fixture
+
+
+def test_remove_lambda_function_not_found(mock_get_client):
+    lambda_params = LambdaParams()
+    lambda_params.function_name = 'non-existent-function'
+    
+    lambda_client = mock_get_client.side_effect('lambda')
+    
+    with pytest.raises(ClientError):
+        remove_lambda(lambda_params)
+    
+    lambda_client.get_function.assert_called_once_with(FunctionName='non-existent-function')
+    lambda_client.delete_function.assert_not_called()

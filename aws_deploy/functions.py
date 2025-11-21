@@ -133,17 +133,14 @@ def __handle_lambda_remove_role(lambda_client, lambda_params: LambdaParams):
         logging(e, utils.Colors.RED)
 
 # TODO: clean this code up
-def _wait_for_role_to_exist(lambda_params: LambdaParams, timeout=1, max_attempts=15, stall=10):
+def _wait_for_role_to_exist(lambda_params: LambdaParams, timeout=1, max_attempts=15):
     iam_client = get_client('iam')
     role_name = lambda_params._role_arn.split(':')[-1].split('/')[-1].strip()
     attempts = 0
     while attempts < max_attempts:
         try:
             resp = iam_client.get_role(RoleName=role_name)
-            print(f"The role '{role_name}' exists.")
-            logging(resp, utils.Colors.MAGENTA)
-            logging('waiting for another 10 seconds')
-            time.sleep(stall)
+            logging(f'Role {role_name} found!', utils.Colors.GREEN)
             return
         except:
             attempts += 1

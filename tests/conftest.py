@@ -131,10 +131,70 @@ def mock_iam_client(role_fixture, response_metadata_fixture, aws_account_fixture
             'PolicyDocument': role_fixture[role_name]['Policies'][policy_name]
         }
     
+    @with_response_metadata(response_metadata_fixture)
+    def list_attached_role_policies(*args, **kwargs):
+        role_name = kwargs['RoleName']
+        if role_name not in role_fixture:
+            error_response = {'Error': {'Code': 'NoSuchEntity'}}
+            raise ClientError(error_response, 'ListAttachedRolePolicies')
+        
+        return {
+            'AttachedPolicies': []
+        }
+    
+    @with_response_metadata(response_metadata_fixture)
+    def list_role_policies(*args, **kwargs):
+        role_name = kwargs['RoleName']
+        if role_name not in role_fixture:
+            error_response = {'Error': {'Code': 'NoSuchEntity'}}
+            raise ClientError(error_response, 'ListRolePolicies')
+        
+        return {
+            'PolicyNames': list(role_fixture[role_name]['Policies'].keys())
+        }
+    
+    @with_response_metadata(response_metadata_fixture)
+    def detach_role_policy(*args, **kwargs):
+        role_name = kwargs['RoleName']
+        if role_name not in role_fixture:
+            error_response = {'Error': {'Code': 'NoSuchEntity'}}
+            raise ClientError(error_response, 'DetachRolePolicy')
+        
+        return {}
+    
+    @with_response_metadata(response_metadata_fixture)
+    def delete_role_policy(*args, **kwargs):
+        role_name = kwargs['RoleName']
+        policy_name = kwargs['PolicyName']
+        
+        if role_name not in role_fixture:
+            error_response = {'Error': {'Code': 'NoSuchEntity'}}
+            raise ClientError(error_response, 'DeleteRolePolicy')
+        
+        if policy_name in role_fixture[role_name]['Policies']:
+            del role_fixture[role_name]['Policies'][policy_name]
+        
+        return {}
+    
+    @with_response_metadata(response_metadata_fixture)
+    def delete_role(*args, **kwargs):
+        role_name = kwargs['RoleName']
+        if role_name not in role_fixture:
+            error_response = {'Error': {'Code': 'NoSuchEntity'}}
+            raise ClientError(error_response, 'DeleteRole')
+        
+        del role_fixture[role_name]
+        return {}
+    
     mock_iam_client.create_role.side_effect = create_role
     mock_iam_client.get_role.side_effect = get_role
     mock_iam_client.put_role_policy.side_effect = put_role_policy
     mock_iam_client.get_role_policy.side_effect = get_role_policy
+    mock_iam_client.list_attached_role_policies.side_effect = list_attached_role_policies
+    mock_iam_client.list_role_policies.side_effect = list_role_policies
+    mock_iam_client.detach_role_policy.side_effect = detach_role_policy
+    mock_iam_client.delete_role_policy.side_effect = delete_role_policy
+    mock_iam_client.delete_role.side_effect = delete_role
     
     return mock_iam_client
 
@@ -237,8 +297,56 @@ def mock_lambda_client(
         
         return functions_fixture[function_name]['Configuration'].copy()
     
+    @with_response_metadata(response_metadata_fixture)
+    def update_function_configuration(*args, **kwargs):
+        function_name = kwargs['FunctionName']
+        if function_name not in functions_fixture:
+            error_response = {'Error': {'Code': 'ResourceNotFoundException'}}
+            raise ClientError(error_response, 'UpdateFunctionConfiguration')
+        
+        role = kwargs.get('Role')
+        handler = kwargs.get('Handler')
+        
+        if role:
+            functions_fixture[function_name]['Configuration']['Role'] = role
+        if handler:
+            functions_fixture[function_name]['Configuration']['Handler'] = handler
+        
+        functions_fixture[function_name]['Configuration']['LastUpdateStatus'] = 'Successful'
+        
+        return functions_fixture[function_name]['Configuration'].copy()
+    
+    @with_response_metadata(response_metadata_fixture)
+    def update_function_code(*args, **kwargs):
+        function_name = kwargs['FunctionName']
+        if function_name not in functions_fixture:
+            error_response = {'Error': {'Code': 'ResourceNotFoundException'}}
+            raise ClientError(error_response, 'UpdateFunctionCode')
+        
+        zip_data = kwargs.get('ZipFile', b'')
+        code_size = len(zip_data) if zip_data else functions_fixture[function_name]['Configuration'].get('CodeSize', 0)
+        
+        functions_fixture[function_name]['Configuration']['CodeSize'] = code_size
+        functions_fixture[function_name]['Configuration']['LastUpdateStatus'] = 'Successful'
+        functions_fixture[function_name]['Configuration']['LastModified'] = datetime(2025, 1, 1).isoformat() + '+00:00'
+        
+        return functions_fixture[function_name]['Configuration'].copy()
+    
+    @with_response_metadata(response_metadata_fixture)
+    def delete_function(*args, **kwargs):
+        function_name = kwargs['FunctionName']
+        if function_name not in functions_fixture:
+            error_response = {'Error': {'Code': 'ResourceNotFoundException'}}
+            raise ClientError(error_response, 'DeleteFunction')
+        
+        del functions_fixture[function_name]
+        return {}
+    
     mock_lambda_client.get_function.side_effect = get_function
     mock_lambda_client.create_function.side_effect = create_function
+    mock_lambda_client.update_function_configuration.side_effect = update_function_configuration
+    mock_lambda_client.update_function_code.side_effect = update_function_code
+    mock_lambda_client.delete_function.side_effect = delete_function
     
     return mock_lambda_client
 
